@@ -92,10 +92,19 @@
         function handleKeyDown(e){if(gameState==='PLAYING'){if(e.key==='ArrowLeft'||e.key==='a')inputState.left=true;if(e.key==='ArrowRight'||e.key==='d')inputState.right=true;if(e.key===' '||e.key==='ArrowUp'||e.key==='w'){if(player.hasJetpack)inputState.useJetpack=true;else inputState.jump=true;}if(e.key==='Control'||e.key==='x'||e.key==='Shift')inputState.shoot=true;if(e.key==='b'||e.key==='B')inputState.dropBomb=true;if(e.key==='r'||e.key==='R')inputState.restartLvl=true;if(e.key==='h'||e.key==='H')inputState.toggleControls=true;}}
         function handleKeyUp(e){if(e.key==='ArrowLeft'||e.key==='a')inputState.left=false;if(e.key==='ArrowRight'||e.key==='d')inputState.right=false;if(e.key===' '||e.key==='ArrowUp'||e.key==='w'){inputState.jump=false;inputState.useJetpack=false;}if(e.key==='Control'||e.key==='x'||e.key==='Shift')inputState.shoot=false;if(e.key==='b'||e.key==='B')inputState.dropBomb=false;if(e.key==='r'||e.key==='R')inputState.restartLvl=false;if(e.key==='h'||e.key==='H')inputState.toggleControls=false;}
         function getTouchPos(c,t){const r=c.getBoundingClientRect();return{x:t.clientX-r.left,y:t.clientY-r.top};}
-        function handleTouchStart(e){e.preventDefault();if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){resetFullGame();return;}if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const p=getTouchPos(canvas,t);touchControls.activeTouches[t.identifier]={x:p.x,y:p.y,action:null};touchControls.buttons.forEach(b=>{if(p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=true;else inputState[b.action]=true;touchControls.activeTouches[t.identifier].action=b.action;if(b.action==='restartLvl'){restartCurrentLevelAction();inputState.restartLvl=false;}else if(b.action==='toggleControls'){showTouchControls=!showTouchControls;inputState.toggleControls=false;}}});}}}
+        
+        function requestBrowserFullScreen() {
+            const elem = document.documentElement;
+            if (elem.requestFullscreen) { elem.requestFullscreen(); }
+            else if (elem.mozRequestFullScreen) { /* Firefox */ elem.mozRequestFullScreen(); }
+            else if (elem.webkitRequestFullscreen) { /* Chrome, Safari & Opera */ elem.webkitRequestFullscreen(); }
+            else if (elem.msRequestFullscreen) { /* IE/Edge */ elem.msRequestFullscreen(); }
+        }
+
+        function handleTouchStart(e){e.preventDefault();if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){if(!document.fullscreenElement) { requestBrowserFullScreen(); } resetFullGame();return;}if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const p=getTouchPos(canvas,t);touchControls.activeTouches[t.identifier]={x:p.x,y:p.y,action:null};touchControls.buttons.forEach(b=>{if(p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=true;else inputState[b.action]=true;touchControls.activeTouches[t.identifier].action=b.action;if(b.action==='restartLvl'){restartCurrentLevelAction();inputState.restartLvl=false;}else if(b.action==='toggleControls'){showTouchControls=!showTouchControls;inputState.toggleControls=false;}}});}}}
         function handleTouchMove(e){e.preventDefault();if(gameState!=='PLAYING')return;const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const p=getTouchPos(canvas,t);const aT=touchControls.activeTouches[t.identifier];if(aT){if(aT.action&&aT.action!=='restartLvl'&&aT.action!=='toggleControls'){const b=touchControls.buttons.find(btn=>btn.action===aT.action);if(b&&!(p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height)){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=false;else inputState[aT.action]=false;aT.action=null;}}if(!aT.action){touchControls.buttons.forEach(b=>{if(b.action!=='restartLvl'&&b.action!=='toggleControls'&&p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=true;else inputState[b.action]=true;aT.action=b.action;}});}}}}
         function handleTouchEnd(e){e.preventDefault();if(gameState!=='PLAYING'&&gameState!='LEVEL_COMPLETE')return;const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const aT=touchControls.activeTouches[t.identifier];if(aT&&aT.action){if(aT.action!=='restartLvl'&&aT.action!=='toggleControls'){if(aT.action==='jump'&&player.hasJetpack)inputState.useJetpack=false;else inputState[aT.action]=false;}}delete touchControls.activeTouches[t.identifier];}if(Object.keys(touchControls.activeTouches).length==0){Object.keys(inputState).forEach(k=>{if(k!=='restartLvl'&&k!=='toggleControls')inputState[k]=false;});}}
-        function handleCanvasClick(e){if(gameState==='START_SCREEN'||gameState==='GAME_OVER')resetFullGame();}
+        function handleCanvasClick(e){if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){if(!document.fullscreenElement) { requestBrowserFullScreen(); } resetFullGame();}}
         function getMapTileData(m,c,r){if(!m||r<0||r>=m.length||c<0||c>=m[0].length)return 1;return m[r][c];}
         function getMapTileCollision(c,r,forGhost=false){if(!currentLevelMap||r<0||r>=currentLevelMap.length||c<0||c>=currentLevelMap[0].length)return 1;const t=currentLevelMap[r][c];if(forGhost&&t===1){const pBottomGrid=Math.floor((player.y+player.height-0.1)/TILE_SIZE);const pLeftGrid=Math.floor(player.x/TILE_SIZE);const pRightGrid=Math.floor((player.x+player.width-1)/TILE_SIZE);if(r===pBottomGrid&&(c===pLeftGrid||c===pRightGrid))return 1;return 0;}return(t===1)?1:0;}
         function createExplosion(x,y,count=10,color1=COLOR_EXPLOSION_ORANGE,color2=COLOR_EXPLOSION_YELLOW,radius=TILE_SIZE*0.5){for(let i=0;i<count;i++)particles.push({x:x+TILE_SIZE/2,y:y+TILE_SIZE/2,size:Math.random()*radius*0.4+radius*0.1,dx:(Math.random()-0.5)*radius*0.4,dy:(Math.random()-0.5)*radius*0.4,life:DEATH_ANIMATION_DURATION,color:Math.random()<0.5?color1:color2});}
@@ -126,22 +135,87 @@
         function drawText(txt,x,y,s,aln='center',clr=COLOR_TEXT,shd=null){ctx.font=`bold ${s}px Arial, sans-serif`;ctx.textAlign=aln;ctx.textBaseline='top';if(shd){ctx.fillStyle=shd;ctx.fillText(txt,x+Math.max(1,s*0.05),y+Math.max(1,s*0.05));}ctx.fillStyle=clr;ctx.fillText(txt,x,y);}
         function drawPixelArtBombButton(button){const ts=TILE_SIZE;const x=button.x,y=button.y,w=button.width,h=button.height;const bombR=Math.min(w,h)*0.3;const fuseH=bombR*0.6;ctx.fillStyle=COLOR_BOMB_BODY;ctx.beginPath();ctx.arc(x+w/2,y+h*0.6,bombR,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_BOMB_FUSE;ctx.fillRect(x+w/2-ts*0.03,y+h*0.6-bombR-fuseH,ts*0.06,fuseH);if(inputState.dropBomb){ctx.fillStyle='rgba(255,255,0,0.5)';ctx.beginPath();ctx.arc(x+w/2,y+h*0.6-bombR-fuseH,ts*0.05,0,Math.PI*2);ctx.fill();}}
         
+        function drawIntroBot(x, y, size) {
+            const cBC = COLOR_PLAYER_BODY; const cAC = COLOR_PLAYER_ACCENT;
+            const ts = size; const px = x; const py = y;
+
+            const headH = ts * 0.65, headW = ts * 0.75, bodyH = ts * 0.15, bodyW = ts * 0.35, legW = ts * 0.18, legH = ts * 0.28,
+                  eyeS = ts * 0.28, pupilS = ts * 0.14, antH = ts * 0.1, antW = ts * 0.03, antTipS = ts * 0.05, blushS = ts * 0.14;
+            
+            const totalVisH = headH + bodyH + legH, vertOff = Math.floor((ts - totalVisH) / 2);
+            const headY = py + vertOff, headX = px + Math.floor((ts - headW) / 2), bodyY = headY + headH,
+                  bodyX = px + Math.floor((ts - bodyW) / 2), legBaseY = bodyY + bodyH,
+                  leg1X = bodyX + bodyW * 0.2, leg2X = bodyX + bodyW * 0.8 - legW;
+
+            ctx.fillStyle = cBC;
+            ctx.fillRect(leg1X, legBaseY, legW, legH);
+            ctx.fillRect(leg2X, legBaseY, legW, legH);
+            
+            let r = ts * 0.03; ctx.beginPath();
+            ctx.moveTo(bodyX + r, bodyY);
+            ctx.arcTo(bodyX + bodyW, bodyY, bodyX + bodyW, bodyY + bodyH, r);
+            ctx.arcTo(bodyX + bodyW, bodyY + bodyH, bodyX, bodyY + bodyH, r);
+            ctx.arcTo(bodyX, bodyY + bodyH, bodyX, bodyY, r);
+            ctx.arcTo(bodyX, bodyY, bodyX + bodyW, bodyY, r);
+            ctx.closePath(); ctx.fill();
+
+            r = ts * 0.2; ctx.beginPath();
+            ctx.moveTo(headX + r, headY);
+            ctx.arcTo(headX + headW, headY, headX + headW, headY + headH, r);
+            ctx.arcTo(headX + headW, headY + headH, headX, headY + headH, r);
+            ctx.arcTo(headX, headY + headH, headX, headY, r);
+            ctx.arcTo(headX, headY, headX + headW, headY, r);
+            ctx.closePath(); ctx.fill();
+
+            const antBX = headX + headW / 2 - antW / 2, antBY = headY - antH;
+            ctx.fillStyle = cBC; ctx.fillRect(antBX, antBY, antW, antH);
+            ctx.fillStyle = cAC; ctx.beginPath();
+            ctx.arc(antBX + antW / 2, antBY - antTipS / 2, antTipS, 0, Math.PI * 2);
+            ctx.fill();
+
+            const eyeY = headY + headH * 0.4 - eyeS / 2, eyeSp = headW * 0.25, eye1X = headX + eyeSp, eye2X = headX + headW - eyeSp - eyeS;
+            ctx.fillStyle = COLOR_PLAYER_EYE_WHITES;
+            ctx.beginPath(); ctx.arc(eye1X + eyeS / 2, eyeY + eyeS / 2, eyeS / 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(eye2X + eyeS / 2, eyeY + eyeS / 2, eyeS / 2, 0, Math.PI * 2); ctx.fill();
+
+            ctx.fillStyle = COLOR_PLAYER_PUPIL;
+            ctx.beginPath(); ctx.arc(eye1X + eyeS / 2, eyeY + eyeS / 2, pupilS / 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(eye2X + eyeS / 2, eyeY + eyeS / 2, pupilS / 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = COLOR_PLAYER_EYE_WHITES;
+            ctx.fillRect(eye1X + eyeS * 0.6, eyeY + eyeS * 0.2, pupilS * 0.3, pupilS * 0.3);
+            ctx.fillRect(eye2X + eyeS * 0.6, eyeY + eyeS * 0.2, pupilS * 0.3, pupilS * 0.3);
+
+            if (ts > 12) {
+                ctx.fillStyle = COLOR_PLAYER_BLUSH;
+                ctx.beginPath(); ctx.arc(headX + headW * 0.2, headY + headH * 0.75, blushS / 2, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(headX + headW * 0.8, headY + headH * 0.75, blushS / 2, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+        
         function drawStartScreen(){
             ctx.fillStyle=COLOR_UI_BACKGROUND; ctx.fillRect(0,0,canvas.width,canvas.height);
-            const titleSize = TILE_SIZE * 1.4; // **Larger Title**
-            const collectSize = TILE_SIZE * 0.65; // **Larger Collect Text**
-            const tapSize = TILE_SIZE * 0.9; // **Larger Tap Text**
-            const controlsTopSize = TILE_SIZE * 0.5;
-            const keyInfoSize = TILE_SIZE * 0.45;
+            const titleSize = TILE_SIZE * 1.2;
+            const collectSize = TILE_SIZE * 0.55;
+            const tapSize = TILE_SIZE * 0.8;
+            const controlsTopSize = TILE_SIZE * 0.45;
+            const keyInfoSize = TILE_SIZE * 0.4;
 
-            let yPos = canvas.height * 0.18;
+            let yPos = canvas.height * 0.08;
             drawText('GHOSTS AND THE BOT',canvas.width/2,yPos,titleSize,'center',COLOR_INTRO_GAMEOVER_TEXT.toUpperCase(),null);
-            yPos += titleSize * 1.8; // Adjusted spacing
-            
-            const collectText = "COLLECT: ";
+            yPos += titleSize * 1.9;
+   
+                        
+            const botSize = TILE_SIZE * 4.5;
+            const botX = canvas.width/2 - botSize/2;
+            const botY = yPos;
+            drawIntroBot(botX, botY, botSize);
+            yPos += botSize * 1.5;
+
+
+            const collectText = "COLLECT ALL BATTERIES ";
             ctx.font = `bold ${collectSize}px Arial`; 
             const textMetrics = ctx.measureText(collectText); const textWidth = textMetrics.width;
-            const batteryIconSize = TILE_SIZE * 0.7; const iconSpacing = TILE_SIZE * 0.08; // Slightly more space
+            const batteryIconSize = TILE_SIZE * 0.7; const iconSpacing = TILE_SIZE * 0.1;
             const totalCollectWidth = textWidth + iconSpacing + batteryIconSize;
             const collectXStart = canvas.width/2 - totalCollectWidth/2;
             drawText(collectText, collectXStart, yPos, collectSize, 'left', COLOR_TEXT.toUpperCase(),null);
@@ -149,18 +223,20 @@
             const bY = yPos + (collectSize - batteryIconSize) / 2 + collectSize*0.05;
             ctx.fillStyle=COLOR_BATTERY;
             ctx.fillRect(bX+batteryIconSize*0.2,bY+batteryIconSize*0.1,batteryIconSize*0.6,batteryIconSize*0.8);
-            ctx.fillStyle=currentCircuitColors.mortar; // Use a consistent mortar for icon
+            ctx.fillStyle=currentCircuitColors.base; 
             ctx.fillRect(bX+batteryIconSize*0.4,bY+batteryIconSize*0.05,batteryIconSize*0.2,batteryIconSize*0.1);
 
-            yPos += collectSize * 2.8;
+            yPos += collectSize * 2.6;
+
+
             drawText('Tap to Phase In!',canvas.width/2,yPos,tapSize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
-            yPos += tapSize * 1.8;
+            yPos += tapSize * 1.5;
             drawText('Touch Controls: On-Screen (H to Toggle)',canvas.width/2,yPos,controlsTopSize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
-            yPos += controlsTopSize * 2.2;
+            yPos += controlsTopSize * 1.8;
             drawText('Keyboard Controls:',canvas.width/2,yPos,keyInfoSize*1.1,'center',COLOR_TEXT_SHADOW);
-            yPos += keyInfoSize * 1.8;
+            yPos += keyInfoSize * 1.6;
             drawText('Arrows/WASD: Move/Jump/Fly (Jetpack)',canvas.width/2,yPos,keyInfoSize,'center',COLOR_TEXT);
-            yPos += keyInfoSize * 1.5;
+            yPos += keyInfoSize * 1.4;
             drawText('Ctrl/Shift/X: Shoot | B: Bomb | R: Restart',canvas.width/2,yPos,keyInfoSize,'center',COLOR_TEXT);
         }
         function drawGameOverScreen(){
