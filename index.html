@@ -12,18 +12,26 @@
 <body>
     <canvas id="gameCanvas"></canvas>
     <script>
+        // --- DOM Elements ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
         // --- Configuration & Colors ---
-        const GRID_COLS=16; const GRID_ROWS=16; let TILE_SIZE;
-        let TOP_UI_AREA_HEIGHT_TILES = 2.5; let BOTTOM_UI_AREA_HEIGHT_TILES = 3;
-        let TOP_UI_AREA_HEIGHT; let BOTTOM_UI_AREA_HEIGHT; let PLAY_AREA_Y_OFFSET;
+        // --- Grid and UI Sizing ---
+        const GRID_COLS=16; // Number of columns in the game grid.
+        const GRID_ROWS=16; // Number of rows in the game grid.
+        let TILE_SIZE;      // Size of each tile in pixels, calculated dynamically.
+        let TOP_UI_AREA_HEIGHT_TILES = 2.5; // Height of the top UI bar in units of tiles.
+        let BOTTOM_UI_AREA_HEIGHT_TILES = 3; // Height of the bottom UI area (for touch controls) in units of tiles.
+        let TOP_UI_AREA_HEIGHT; // Height of the top UI bar in pixels.
+        let BOTTOM_UI_AREA_HEIGHT; // Height of the bottom UI area in pixels.
+        let PLAY_AREA_Y_OFFSET; // Y-offset in pixels to where the playable game area begins.
 
+        // --- Color Palette ---
         const COLOR_GAME_AREA_BACKGROUND='#1A092A'; const COLOR_UI_BACKGROUND = '#100520';
         const CIRCUIT_PALETTES = [ { base: '#303030', trace: '#00FF00', node: '#39FF14' },{ base: '#202040', trace: '#00FFFF', node: '#00BFFF' },{ base: '#401040', trace: '#FF00FF', node: '#FF69B4' }];
-        let currentCircuitColors = CIRCUIT_PALETTES[0];
-        const COLOR_PLAYER_BODY='#FF00FF'; const COLOR_PLAYER_ACCENT='#00FFFF'; /* ... other colors ... */
+        let currentCircuitColors = CIRCUIT_PALETTES[0]; // The circuit color palette for the current level.
+        const COLOR_PLAYER_BODY='#FF00FF'; const COLOR_PLAYER_ACCENT='#00FFFF';
         const COLOR_PLAYER_IMMORTAL_BODY = '#808080'; const COLOR_PLAYER_IMMORTAL_ACCENT = '#A9A9A9';
         const COLOR_PLAYER_GHOST_BODY = 'rgba(240,240,255,0.7)'; const COLOR_PLAYER_GHOST_ACCENT = 'rgba(200,200,255,0.9)';
         const COLOR_PLAYER_EYE_WHITES='#FFFFFF'; const COLOR_PLAYER_PUPIL='#000000';
@@ -42,24 +50,30 @@
         const COLOR_EXPLOSION_ORANGE='#FFA500'; const COLOR_EXPLOSION_YELLOW='#FFFF00'; const COLOR_EXPLOSION_RED='#FF0000';
         const COLOR_BATTERY_SPARKLE = '#FFFF00';
 
+        // --- Touch Control Colors ---
         const TOUCH_BUTTON_COLOR='rgba(180, 180, 180, 0.25)';
         const TOUCH_BUTTON_PRESSED_COLOR='rgba(220, 220, 220, 0.4)';
         const TOUCH_BUTTON_TEXT_COLOR='rgba(255, 255, 255, 0.6)';
 
-        let GRAVITY; let PLAYER_MOVE_SPEED; let JUMP_VELOCITY_NORMAL;
+        // --- Game Mechanics & Physics ---
+        let GRAVITY; let PLAYER_MOVE_SPEED; let JUMP_VELOCITY_NORMAL; // Dynamically calculated based on TILE_SIZE.
         const LASER_SPEED=7; const SHOOT_COOLDOWN=15; const DEFAULT_AMMO=10; const DEFAULT_LIVES = 3;
         const ENEMY_PATROL_SPEED_BASE=0.03; const ENEMY_JUMPER_JUMP_VELOCITY_FACTOR=0.45;
         const ENEMY_GHOST_SPEED_BASE=0.025;
-        const LEVEL_COMPLETE_DELAY=2000; const DEATH_ANIMATION_DURATION=30;
-        const BATTERY_COLLECT_ANIM_DURATION=20; const BOMB_FUSE_TIME = 90;
+        const LEVEL_COMPLETE_DELAY=2000; // Milliseconds to wait before starting next level.
+        const DEATH_ANIMATION_DURATION=30; // Frames for death animation.
+        const BATTERY_COLLECT_ANIM_DURATION=20; const BOMB_FUSE_TIME = 90; // Frames before bomb explodes.
         const BOMB_EXPLOSION_RADIUS_TILES = 2.0; const BOMB_KNOCKBACK_FORCE = 0.4;
-        const RESPAWN_IMMORTALITY_DURATION = 2 * 60;
-        const GHOST_MODE_DURATION = 4 * 60; const GHOST_MODE_SPAWN_DELAY = 60 * 60;
+        const RESPAWN_IMMORTALITY_DURATION = 2 * 60; // 2 seconds at 60fps.
+        const GHOST_MODE_DURATION = 4 * 60; const GHOST_MODE_SPAWN_DELAY = 60 * 60; // 1 minute before ghost powerup can appear.
         const JETPACK_DURATION = 4 * 60; const JETPACK_THRUST = 0.15;
-        let ENEMY_SPAWN_INTERVAL_BASE = 60 * 30;
+        let ENEMY_SPAWN_INTERVAL_BASE = 60 * 30; // Base time in frames for new enemies to spawn.
 
-        let gameState = 'START_SCREEN';
-        const player = { /* ... same ... */
+        // --- Game State & Entity Management ---
+        let gameState = 'START_SCREEN'; // Manages the current state of the game (START_SCREEN, PLAYING, GAME_OVER, etc.).
+        
+        // Player object holds all state related to the player character.
+        const player = {
             x:0,y:0,width:0,height:0,dx:0,dy:0,onGround:false,facingDirection:1,
             animTimer:0,walkCycleFrame:0,blinkTimer:0,isBlinking:false,
             lives:DEFAULT_LIVES,score:0,ammo:DEFAULT_AMMO,bombs:0,shootCooldownTimer:0,
@@ -68,31 +82,113 @@
             hasJetpack: false, isFlying: false, jetpackFuelTimer: 0, jetpackFlameFrame: 0
         };
 
+        // Arrays to hold all active game entities.
         let projectiles=[]; let enemies=[]; let batteries=[]; let ghostModePickups=[]; let ammoPickups=[]; let bombPickups=[]; let jetpackPickups=[]; let extraLifePickups=[];
         let activeBombs = []; let particles=[];
-        let currentLevelMap = [];
+        let currentLevelMap = []; // The 2D array representing the current level's layout.
 
         let totalBatteriesInLevel=0; let collectedBatteries=0; let levelCompleteTimer=0;
         let nextEnemySpawnTimer = ENEMY_SPAWN_INTERVAL_BASE;
         let ghostModeSpawnEligibilityTimer = GHOST_MODE_SPAWN_DELAY;
-        let showTouchControls = true;
+        let showTouchControls = true; // Flag to toggle visibility of touch controls.
 
+        // Input state object tracks which keys or touch controls are currently active.
         const inputState = { left:false,right:false,jump:false,shoot:false,dropBomb:false,useJetpack:false,restartLvl:false, toggleControls: false };
         const touchControls = { buttons:[],activeTouches:{} };
 
+        /**
+         * Sets up the canvas size and calculates dynamic game variables based on screen dimensions.
+         * Ensures the game is playable on various screen sizes by using a tile-based scaling system.
+         */
         function setupCanvas(){const maxCanvasWidth=window.innerWidth*0.96;const maxCanvasHeight=window.innerHeight*0.98;const totalEffectiveRows=GRID_ROWS+TOP_UI_AREA_HEIGHT_TILES+BOTTOM_UI_AREA_HEIGHT_TILES;let tileByWidth=Math.floor(maxCanvasWidth/GRID_COLS);let tileByHeight=Math.floor(maxCanvasHeight/totalEffectiveRows);TILE_SIZE=Math.min(tileByWidth,tileByHeight);if(TILE_SIZE<8)TILE_SIZE=8;TOP_UI_AREA_HEIGHT=TILE_SIZE*TOP_UI_AREA_HEIGHT_TILES;BOTTOM_UI_AREA_HEIGHT=TILE_SIZE*BOTTOM_UI_AREA_HEIGHT_TILES;PLAY_AREA_Y_OFFSET=TOP_UI_AREA_HEIGHT;canvas.width=GRID_COLS*TILE_SIZE;canvas.height=TOP_UI_AREA_HEIGHT+(GRID_ROWS*TILE_SIZE)+BOTTOM_UI_AREA_HEIGHT;ctx.imageSmoothingEnabled=false;GRAVITY=TILE_SIZE*0.04;PLAYER_MOVE_SPEED=TILE_SIZE*0.15;JUMP_VELOCITY_NORMAL=Math.sqrt(2*GRAVITY*(TILE_SIZE*5.05));player.width=TILE_SIZE;player.height=TILE_SIZE;}
+        
+        /**
+         * Resets the entire game to its initial state. Called when starting a new game.
+         */
         function resetFullGame(){player.lives=DEFAULT_LIVES;player.score=0;player.currentLevel=1;player.bombs=0;player.ammo=DEFAULT_AMMO;player.isImmortal=false;player.immortalityTimer=0;player.isInGhostMode=false;player.ghostModeTimer=0;player.hasJetpack=false;player.isFlying=false;player.jetpackFuelTimer=0;showTouchControls=true;resetCurrentLevelSetup();gameState='PLAYING';}
+        
+        /**
+         * Restarts the current level, deducting a life. Called via the restart button.
+         */
         function restartCurrentLevelAction(){player.isImmortal=false;player.immortalityTimer=0;player.isInGhostMode=false;player.ghostModeTimer=0;player.hasJetpack=false;player.isFlying=false;player.jetpackFuelTimer=0;if(player.lives>0){player.lives--;}if(player.lives<0){gameState='GAME_OVER';return;}resetCurrentLevelSetup();gameState='PLAYING';}
-        function resetCurrentLevelSetup(){collectedBatteries=0;projectiles=[];particles=[];activeBombs=[];enemies=[];currentCircuitColors=CIRCUIT_PALETTES[Math.floor(Math.random()*CIRCUIT_PALETTES.length)];currentLevelMap=generateRandomLevel();if(!currentLevelMap||currentLevelMap.length!==GRID_ROWS||(currentLevelMap.length>0&&currentLevelMap[0].length!==GRID_COLS)){console.error("Fallback: Invalid map!");currentLevelMap=Array(GRID_ROWS).fill(null).map((_,r)=>Array(GRID_COLS).fill(r===GRID_ROWS-1?1:0));if(GRID_ROWS>2&&GRID_COLS>2)currentLevelMap[1][Math.floor(GRID_COLS/2)]=0;}parseLevelMap(currentLevelMap);placePlayerAtStart();spawnInitialEnemies();player.isDying=false;player.deathAnimFrame=0;nextEnemySpawnTimer=Math.max(180,ENEMY_SPAWN_INTERVAL_BASE/player.currentLevel);ghostModeSpawnEligibilityTimer=GHOST_MODE_SPAWN_DELAY;}
+        
+        /**
+         * Resets the state for the current level. Generates a new map and places entities.
+         */
+        function resetCurrentLevelSetup(){collectedBatteries=0;projectiles=[];particles=[];activeBombs=[];enemies=[];currentCircuitColors=CIRCUIT_PALETTES[Math.floor(Math.random()*CIRCUIT_PALETTES.length)];currentLevelMap=generateRandomLevel();if(!currentLevelMap||currentLevelMap.length!==GRID_ROWS||(currentLevelMap.length>0&¤tLevelMap[0].length!==GRID_COLS)){console.error("Fallback: Invalid map!");currentLevelMap=Array(GRID_ROWS).fill(null).map((_,r)=>Array(GRID_COLS).fill(r===GRID_ROWS-1?1:0));if(GRID_ROWS>2&&GRID_COLS>2)currentLevelMap[1][Math.floor(GRID_COLS/2)]=0;}parseLevelMap(currentLevelMap);placePlayerAtStart();spawnInitialEnemies();player.isDying=false;player.deathAnimFrame=0;nextEnemySpawnTimer=Math.max(180,ENEMY_SPAWN_INTERVAL_BASE/player.currentLevel);ghostModeSpawnEligibilityTimer=GHOST_MODE_SPAWN_DELAY;}
+        
+        /**
+         * Counts the number of wall neighbors for a given cell in a map.
+         * @param {Array<Array<number>>} map - The level map.
+         * @param {number} r - The row index.
+         * @param {number} c - The column index.
+         * @returns {number} The count of adjacent wall tiles.
+         */
         function countNeighbors(map,r,c){let count=0;for(let i=-1;i<=1;i++){for(let j=-1;j<=1;j++){if(i===0&&j===0)continue;const nR=r+i;const nC=c+j;if(nR>=0&&nR<GRID_ROWS&&nC>=0&&nC<GRID_COLS&&map[nR][nC]===1)count++;}}return count;}
+        
+        /**
+         * Procedurally generates a random level map with walls, platforms, and items.
+         * @returns {Array<Array<number>>} A 2D array representing the newly generated level.
+         */
         function generateRandomLevel(){const map=Array(GRID_ROWS).fill(null).map(()=>Array(GRID_COLS).fill(0));const wallProb=0.25;for(let r=0;r<GRID_ROWS;r++){map[r][0]=1;map[r][GRID_COLS-1]=1;}for(let c=0;c<GRID_COLS;c++){map[0][c]=1;map[GRID_ROWS-1][c]=1;}for(let r=1;r<GRID_ROWS-1;r++){for(let c=1;c<GRID_COLS-1;c++){if(Math.random()<wallProb){let isolated=true;if((c>1&&map[r][c-1]===1)||(c<GRID_COLS-2&&Math.random()<wallProb))isolated=false;if((r>1&&map[r-1][c]===1)||(r<GRID_ROWS-2&&Math.random()<wallProb))isolated=false;if(!isolated||Math.random()<0.3)map[r][c]=1;}}}for(let r=1;r<GRID_ROWS-1;r++){for(let c=1;c<GRID_COLS-1;c++){if(map[r][c]===1&&countNeighbors(map,r,c)<=1){if(!(map[r][c-1]===1&&map[r][c+1]===1)&&!(map[r-1][c]===1&&map[r+1][c]===1))map[r][c]=0;}}}const spawnR=1;const spawnC=Math.floor(GRID_COLS/2)-1;for(let r_off=0;r_off<=1;r_off++){for(let c_off=-1;c_off<=1;c_off++){const rC=spawnR+r_off;const cC=spawnC+c_off;if(rC>0&&rC<GRID_ROWS-1&&cC>0&&cC<GRID_COLS-1)map[rC][cC]=0;}}if(spawnR>0&&spawnC>0&&spawnC<GRID_COLS-2){map[spawnR-1][spawnC]=1;map[spawnR-1][spawnC-1]=1;map[spawnR-1][spawnC+1]=1;}const numPlat=1+Math.floor(Math.random()*2);for(let i=0;i<numPlat;i++){const pL=3+Math.floor(Math.random()*2);const pR=4+Math.floor(Math.random()*(GRID_ROWS-8));const pCS=2+Math.floor(Math.random()*(GRID_COLS-pL-3));for(let c_plat=0;c_plat<pL;c_plat++){if(pCS+c_plat<GRID_COLS-1&&pR>0&&pR<GRID_ROWS-1)map[pR][pCS+c_plat]=1;}}const items=[{type:3,count:2+Math.floor(Math.random()*2)},{type:5,count:1+Math.floor(Math.random()*1)},{type:8,count:Math.random()<0.3?1:0},{type:9,count:1},{type:11,count:Math.random()<0.2?1:0}];items.forEach(it=>{for(let i=0;i<it.count;i++){let p=false;let att=0;while(!p&&att<100){const rI=1+Math.floor(Math.random()*(GRID_ROWS-2));const cI=1+Math.floor(Math.random()*(GRID_COLS-2));const isSpawn=(rI>=spawnR-1&&rI<=spawnR+1&&cI>=spawnC-1&&cI<=spawnC+1);if(map[rI][cI]===0&&!isSpawn){if((rI<GRID_ROWS-1&&map[rI+1][cI]===1)||(cI>0&&map[rI][cI-1]===1)||(cI<GRID_COLS-1&&map[rI][cI+1]===1)||(rI>0&&map[rI-1][cI]===1)){map[rI][cI]=it.type;p=true;}}att++;}}});let jetpackPlaced=false;let jetpackAttempts=0;while(!jetpackPlaced&&jetpackAttempts<50){const r_jp=2+Math.floor(Math.random()*(GRID_ROWS-5));const c_jp=1+Math.floor(Math.random()*(GRID_COLS-2));const isSpawnZone=(r_jp>=spawnR-1&&r_jp<=spawnR+2&&c_jp>=spawnC-2&&c_jp<=spawnC+2);if(map[r_jp][c_jp]===0&&!isSpawnZone){if((r_jp<GRID_ROWS-1&&map[r_jp+1][c_jp]===1)||(c_jp>0&&map[r_jp][c_jp-1]===1)||(c_jp<GRID_COLS-1&&map[r_jp][c_jp+1]===1)||(r_jp>0&&map[r_jp-1][c_jp]===1)){map[r_jp][c_jp]=10;jetpackPlaced=true;}}jetpackAttempts++;}if(!jetpackPlaced)console.warn("Could not place guaranteed jetpack.");return map;}
+        
+        /**
+         * Places the player at the designated starting position for the level and grants temporary immortality.
+         */
         function placePlayerAtStart(){const cM=currentLevelMap;player.x=(Math.floor(GRID_COLS/2)-1)*TILE_SIZE;player.y=1*TILE_SIZE;if(getMapTileCollision(Math.floor(player.x/TILE_SIZE),Math.floor(player.y/TILE_SIZE))===1||getMapTileCollision(Math.floor(player.x/TILE_SIZE),Math.floor(player.y/TILE_SIZE)-1)!==1){console.warn("Adj player spawn");let fSTS=false;for(let c=1;c<GRID_COLS-1;c++){if(cM[1][c]===0&&cM[0][c]===1){player.x=c*TILE_SIZE;player.y=1*TILE_SIZE;fSTS=true;break;}}if(!fSTS){player.x=2*TILE_SIZE;player.y=(GRID_ROWS-3)*TILE_SIZE;console.error("CRITICAL: No safe top spawn");}}player.dx=0;player.dy=0;player.onGround=false;player.facingDirection=1;player.walkCycleFrame=0;player.animTimer=0;player.blinkTimer=0;player.isBlinking=false;player.shootCooldownTimer=0;player.isImmortal=true;player.immortalityTimer=RESPAWN_IMMORTALITY_DURATION;}
+        
+        /**
+         * Parses the level map data (mD) to create and place items like batteries and pickups.
+         * @param {Array<Array<number>>} mD - The 2D array representing the level map.
+         */
         function parseLevelMap(mD){totalBatteriesInLevel=0;batteries=[];ghostModePickups=[];ammoPickups=[];bombPickups=[];jetpackPickups=[];extraLifePickups=[];for(let r=0;r<GRID_ROWS;r++){for(let c=0;c<GRID_COLS;c++){const tX=c*TILE_SIZE;const tY=r*TILE_SIZE;const tT=mD[r][c];if(tT===3){batteries.push({x:tX,y:tY,width:TILE_SIZE,height:TILE_SIZE,collected:false,isCollecting:false,collectAnimFrame:0});totalBatteriesInLevel++;}else if(tT===5)ammoPickups.push({x:tX,y:tY,width:TILE_SIZE,height:TILE_SIZE,collected:false,amount:5+Math.floor(Math.random()*3)});else if(tT===8)bombPickups.push({x:tX,y:tY,width:TILE_SIZE,height:TILE_SIZE,collected:false});else if(tT===9)ghostModePickups.push({x:tX,y:tY,width:TILE_SIZE,height:TILE_SIZE,collected:false,active:false});else if(tT===10)jetpackPickups.push({x:tX,y:tY,width:TILE_SIZE,height:TILE_SIZE,collected:false});else if(tT===11)extraLifePickups.push({x:tX,y:tY,width:TILE_SIZE,height:TILE_SIZE,collected:false});}}}
+        
+        /**
+         * Defines the positions and actions for all on-screen touch controls.
+         */
         function setupTouchControls(){const bS=TILE_SIZE*2.2;const p=TILE_SIZE*0.4;const bottomButtonsY=PLAY_AREA_Y_OFFSET+(GRID_ROWS*TILE_SIZE)+BOTTOM_UI_AREA_HEIGHT/2-bS/2;const topButtonY=TOP_UI_AREA_HEIGHT/2-(TILE_SIZE*1.5)/2;touchControls.buttons=[{x:p,y:bottomButtonsY,width:bS,height:bS,action:'left',label:'◀'},{x:p+bS+p,y:bottomButtonsY,width:bS,height:bS,action:'right',label:'▶'},{x:canvas.width-bS-p,y:bottomButtonsY,width:bS,height:bS,action:'jump',label:'▲'},{x:canvas.width-bS*2-p*2,y:bottomButtonsY,width:bS,height:bS,action:'shoot',label:'◎'},{x:canvas.width-bS*3-p*3,y:bottomButtonsY,width:bS,height:bS,action:'dropBomb',label:'💥'},{x:canvas.width-TILE_SIZE*3.5-p,y:topButtonY,width:TILE_SIZE*3.5,height:TILE_SIZE*1.5,action:'restartLvl',label:'RESTART'},{x:p,y:topButtonY,width:TILE_SIZE*3.5,height:TILE_SIZE*1.5,action:'toggleControls',label:'HIDE'}];}
-        function handleKeyDown(e){if(gameState==='PLAYING'){if(e.key==='ArrowLeft'||e.key==='a')inputState.left=true;if(e.key==='ArrowRight'||e.key==='d')inputState.right=true;if(e.key===' '||e.key==='ArrowUp'||e.key==='w'){if(player.hasJetpack)inputState.useJetpack=true;else inputState.jump=true;}if(e.key==='Control'||e.key==='x'||e.key==='Shift')inputState.shoot=true;if(e.key==='b'||e.key==='B')inputState.dropBomb=true;if(e.key==='r'||e.key==='R')inputState.restartLvl=true;if(e.key==='h'||e.key==='H')inputState.toggleControls=true;}}
+        
+        /**
+         * Handles keyboard press events.
+         * @param {KeyboardEvent} e - The keyboard event object.
+         */
+        function handleKeyDown(e){
+            // If on the start or game over screen, allow starting the game with the space key.
+            if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){
+                if (e.key === ' ') {
+                    if(!document.fullscreenElement) { requestBrowserFullScreen(); }
+                    resetFullGame();
+                }
+            }
+            // Handle in-game controls.
+            if(gameState==='PLAYING'){
+                if(e.key==='ArrowLeft'||e.key==='a')inputState.left=true;
+                if(e.key==='ArrowRight'||e.key==='d')inputState.right=true;
+                if(e.key===' '||e.key==='ArrowUp'||e.key==='w'){if(player.hasJetpack)inputState.useJetpack=true;else inputState.jump=true;}
+                if(e.key==='Control'||e.key==='x'||e.key==='Shift')inputState.shoot=true;
+                if(e.key==='b'||e.key==='B')inputState.dropBomb=true;
+                if(e.key==='r'||e.key==='R')inputState.restartLvl=true;
+                if(e.key==='h'||e.key==='H')inputState.toggleControls=true;
+            }
+        }
+        
+        /**
+         * Handles keyboard release events.
+         * @param {KeyboardEvent} e - The keyboard event object.
+         */
         function handleKeyUp(e){if(e.key==='ArrowLeft'||e.key==='a')inputState.left=false;if(e.key==='ArrowRight'||e.key==='d')inputState.right=false;if(e.key===' '||e.key==='ArrowUp'||e.key==='w'){inputState.jump=false;inputState.useJetpack=false;}if(e.key==='Control'||e.key==='x'||e.key==='Shift')inputState.shoot=false;if(e.key==='b'||e.key==='B')inputState.dropBomb=false;if(e.key==='r'||e.key==='R')inputState.restartLvl=false;if(e.key==='h'||e.key==='H')inputState.toggleControls=false;}
+        
+        /**
+         * Calculates the touch position relative to the canvas.
+         * @param {HTMLCanvasElement} c - The canvas element.
+         * @param {Touch} t - The touch event object.
+         * @returns {{x: number, y: number}} The coordinates of the touch.
+         */
         function getTouchPos(c,t){const r=c.getBoundingClientRect();return{x:t.clientX-r.left,y:t.clientY-r.top};}
         
+        /**
+         * Requests the browser to enter fullscreen mode. Handles vendor prefixes.
+         */
         function requestBrowserFullScreen() {
             const elem = document.documentElement;
             if (elem.requestFullscreen) { elem.requestFullscreen(); }
@@ -101,40 +197,209 @@
             else if (elem.msRequestFullscreen) { /* IE/Edge */ elem.msRequestFullscreen(); }
         }
 
-        function handleTouchStart(e){e.preventDefault();if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){if(!document.fullscreenElement) { requestBrowserFullScreen(); } resetFullGame();return;}if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const p=getTouchPos(canvas,t);touchControls.activeTouches[t.identifier]={x:p.x,y:p.y,action:null};touchControls.buttons.forEach(b=>{if(p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=true;else inputState[b.action]=true;touchControls.activeTouches[t.identifier].action=b.action;if(b.action==='restartLvl'){restartCurrentLevelAction();inputState.restartLvl=false;}else if(b.action==='toggleControls'){showTouchControls=!showTouchControls;inputState.toggleControls=false;}}});}}}
+        /**
+         * Handles the start of a touch event.
+         * @param {TouchEvent} e - The touch event.
+         */
+        function handleTouchStart(e){
+            e.preventDefault();
+            // If on the start or game over screen, a touch will start the game and request fullscreen.
+            // This is the logic that enables fullscreen from the intro screen on mobile.
+            if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){
+                if(!document.fullscreenElement) { requestBrowserFullScreen(); } 
+                resetFullGame();
+                return;
+            }
+            // Handle in-game touch controls.
+            if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const p=getTouchPos(canvas,t);touchControls.activeTouches[t.identifier]={x:p.x,y:p.y,action:null};touchControls.buttons.forEach(b=>{if(p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=true;else inputState[b.action]=true;touchControls.activeTouches[t.identifier].action=b.action;if(b.action==='restartLvl'){restartCurrentLevelAction();inputState.restartLvl=false;}else if(b.action==='toggleControls'){showTouchControls=!showTouchControls;inputState.toggleControls=false;}}});}}}
+        
+        /**
+         * Handles touch movement across the screen to support dragging fingers between buttons.
+         * @param {TouchEvent} e - The touch event.
+         */
         function handleTouchMove(e){e.preventDefault();if(gameState!=='PLAYING')return;const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const p=getTouchPos(canvas,t);const aT=touchControls.activeTouches[t.identifier];if(aT){if(aT.action&&aT.action!=='restartLvl'&&aT.action!=='toggleControls'){const b=touchControls.buttons.find(btn=>btn.action===aT.action);if(b&&!(p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height)){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=false;else inputState[aT.action]=false;aT.action=null;}}if(!aT.action){touchControls.buttons.forEach(b=>{if(b.action!=='restartLvl'&&b.action!=='toggleControls'&&p.x>=b.x&&p.x<=b.x+b.width&&p.y>=b.y&&p.y<=b.y+b.height){if(b.action==='jump'&&player.hasJetpack)inputState.useJetpack=true;else inputState[b.action]=true;aT.action=b.action;}});}}}}
+        
+        /**
+         * Handles the end of a touch event (finger lifted from screen).
+         * @param {TouchEvent} e - The touch event.
+         */
         function handleTouchEnd(e){e.preventDefault();if(gameState!=='PLAYING'&&gameState!='LEVEL_COMPLETE')return;const ts=e.changedTouches;for(let i=0;i<ts.length;i++){const t=ts[i];const aT=touchControls.activeTouches[t.identifier];if(aT&&aT.action){if(aT.action!=='restartLvl'&&aT.action!=='toggleControls'){if(aT.action==='jump'&&player.hasJetpack)inputState.useJetpack=false;else inputState[aT.action]=false;}}delete touchControls.activeTouches[t.identifier];}if(Object.keys(touchControls.activeTouches).length==0){Object.keys(inputState).forEach(k=>{if(k!=='restartLvl'&&k!=='toggleControls')inputState[k]=false;});}}
-        function handleCanvasClick(e){if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){if(!document.fullscreenElement) { requestBrowserFullScreen(); } resetFullGame();}}
+        
+        /**
+         * Handles mouse clicks on the canvas, primarily to start the game.
+         * @param {MouseEvent} e - The mouse event.
+         */
+        function handleCanvasClick(e){
+            // On the start or game over screens, a click will start the game and request fullscreen.
+            if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){
+                if(!document.fullscreenElement) { requestBrowserFullScreen(); }
+                resetFullGame();
+            }
+        }
+        
+        /**
+         * Retrieves the type of tile at a given map coordinate.
+         * @param {Array<Array<number>>} m - The map data.
+         * @param {number} c - Column index.
+         * @param {number} r - Row index.
+         * @returns {number} The tile type (1 for wall, 0 for empty, etc.). Returns 1 if out of bounds.
+         */
         function getMapTileData(m,c,r){if(!m||r<0||r>=m.length||c<0||c>=m[0].length)return 1;return m[r][c];}
+        
+        /**
+         * Checks for collision with a wall tile at a given grid coordinate.
+         * @param {number} c - Column index.
+         * @param {number} r - Row index.
+         * @param {boolean} [forGhost=false] - If true, treats walls as non-collidable unless player is standing on them.
+         * @returns {number} 1 if there is a collision, 0 otherwise.
+         */
         function getMapTileCollision(c,r,forGhost=false){if(!currentLevelMap||r<0||r>=currentLevelMap.length||c<0||c>=currentLevelMap[0].length)return 1;const t=currentLevelMap[r][c];if(forGhost&&t===1){const pBottomGrid=Math.floor((player.y+player.height-0.1)/TILE_SIZE);const pLeftGrid=Math.floor(player.x/TILE_SIZE);const pRightGrid=Math.floor((player.x+player.width-1)/TILE_SIZE);if(r===pBottomGrid&&(c===pLeftGrid||c===pRightGrid))return 1;return 0;}return(t===1)?1:0;}
+        
+        /**
+         * Creates a cluster of particles for an explosion effect.
+         */
         function createExplosion(x,y,count=10,color1=COLOR_EXPLOSION_ORANGE,color2=COLOR_EXPLOSION_YELLOW,radius=TILE_SIZE*0.5){for(let i=0;i<count;i++)particles.push({x:x+TILE_SIZE/2,y:y+TILE_SIZE/2,size:Math.random()*radius*0.4+radius*0.1,dx:(Math.random()-0.5)*radius*0.4,dy:(Math.random()-0.5)*radius*0.4,life:DEATH_ANIMATION_DURATION,color:Math.random()<0.5?color1:color2});}
+        
+        /**
+         * Creates sparkling particles when a battery is collected.
+         */
         function createBatterySparks(x,y,count=5){for(let i=0;i<count;i++)particles.push({x:x+TILE_SIZE/2,y:y+TILE_SIZE/2,size:Math.random()*TILE_SIZE*0.1+TILE_SIZE*0.02,dx:(Math.random()-0.5)*TILE_SIZE*0.1,dy:(Math.random()-0.5)*TILE_SIZE*0.1,life:BATTERY_COLLECT_ANIM_DURATION,color:COLOR_BATTERY_SPARKLE});}
+        
+        /**
+         * Handles the player getting hit by an enemy.
+         */
         function playerHit(){if(player.isDying||player.isImmortal||player.isInGhostMode)return;player.lives--;player.isDying=true;player.deathAnimFrame=0;player.isFlying=false;player.hasJetpack=false;createExplosion(player.x,player.y,20,COLOR_PLAYER_BODY,COLOR_PLAYER_ACCENT);}
+        
+        /**
+         * Handles an enemy getting hit by a laser.
+         * @param {object} enemy - The enemy object that was hit.
+         */
         function enemyHitByLaser(enemy){if(enemy.isDying)return;enemy.isDying=true;enemy.deathAnimFrame=0;enemy.active=false;createExplosion(enemy.x,enemy.y,15,enemy.type==='jumper'?COLOR_ENEMY_JUMPER_BODY:enemy.type==='ghost'?COLOR_ENEMY_GHOST_GLOW:COLOR_ENEMY_PATROL_BODY,COLOR_EXPLOSION_YELLOW);player.score+=100;}
+        
+        /**
+         * Drops a bomb at the player's location.
+         */
         function dropBomb(){if(player.bombs>0&&!player.isDying){activeBombs.push({x:player.x+player.width/2-(TILE_SIZE*0.3)/2,y:player.y+player.height/2,width:TILE_SIZE*0.3,height:TILE_SIZE*0.4,dy:TILE_SIZE*0.05,fuseTimer:BOMB_FUSE_TIME,onGround:false});player.bombs--;inputState.dropBomb=false;}}
+        
+        /**
+         * Spawns the initial set of enemies at the start of a level.
+         */
         function spawnInitialEnemies(){let eTS=player.currentLevel;let sAT=0;while(eTS>0&&sAT<GRID_COLS*GRID_ROWS){const r=1+Math.floor(Math.random()*(GRID_ROWS-2));const c=1+Math.floor(Math.random()*(GRID_COLS-2));const isPZone=(r>=0&&r<=2&&c>=Math.floor(GRID_COLS/2)-2&&c<=Math.floor(GRID_COLS/2)+1);if(isPZone){sAT++;continue;}if(getMapTileCollision(c,r)===0){const dTP=Math.sqrt(Math.pow(player.x/TILE_SIZE-c,2)+Math.pow(player.y/TILE_SIZE-r,2));if(dTP<4){sAT++;continue;}const eTR=Math.random();let nE;if(eTR<0.45&&getMapTileCollision(c,r+1)===1)nE={type:'patrol',x:c*TILE_SIZE,y:r*TILE_SIZE,width:TILE_SIZE,height:TILE_SIZE,dx:TILE_SIZE*ENEMY_PATROL_SPEED_BASE*(Math.random()<0.5?1:-1),originalX:c*TILE_SIZE,patrolRange:TILE_SIZE*(1+Math.random()*1.5),active:true,animTimer:0,isDying:false,deathAnimFrame:0};else if(eTR<0.8&&getMapTileCollision(c,r+1)===1)nE={type:'jumper',x:c*TILE_SIZE,y:r*TILE_SIZE,width:TILE_SIZE,height:TILE_SIZE,dx:0,dy:0,onGround:true,jumpCooldown:45+Math.random()*40,jumpTimer:Math.random()*30,active:true,animTimer:0,isDying:false,deathAnimFrame:0};else nE={type:'ghost',x:c*TILE_SIZE,y:r*TILE_SIZE,width:TILE_SIZE,height:TILE_SIZE,dx:TILE_SIZE*ENEMY_GHOST_SPEED_BASE*(Math.random()<0.5?1:-1),dy:TILE_SIZE*ENEMY_GHOST_SPEED_BASE*(Math.random()<0.5?1:-1),active:true,animTimer:0,isDying:false,deathAnimFrame:0,phaseTimer:Math.random()*100,alpha:0.7};if(nE){enemies.push(nE);eTS--;}}sAT++;}}
+        
+        /**
+         * Spawns a new enemy dynamically during gameplay.
+         */
         function spawnDynamicEnemy(){if(enemies.length>=3+Math.floor(player.currentLevel/1.5))return;let sA=0;let sp=false;while(!sp&&sA<50){const r=1+Math.floor(Math.random()*(GRID_ROWS-2));const c=1+Math.floor(Math.random()*(GRID_COLS-2));const isPZone=(r>=0&&r<=2&&c>=Math.floor(GRID_COLS/2)-2&&c<=Math.floor(GRID_COLS/2)+1);if(isPZone){sA++;continue;}if(getMapTileCollision(c,r)===0){const dTP=Math.sqrt(Math.pow(player.x/TILE_SIZE-c,2)+Math.pow(player.y/TILE_SIZE-r,2));if(dTP<5&&!(gameState==='START_SCREEN'&&nextEnemySpawnTimer<ENEMY_SPAWN_INTERVAL_BASE-10)){sA++;continue;}const eTR=Math.random();let nE;if(eTR<0.45&&getMapTileCollision(c,r+1)===1)nE={type:'patrol',x:c*TILE_SIZE,y:r*TILE_SIZE,width:TILE_SIZE,height:TILE_SIZE,dx:TILE_SIZE*ENEMY_PATROL_SPEED_BASE*(Math.random()<0.5?1:-1),originalX:c*TILE_SIZE,patrolRange:TILE_SIZE*(1+Math.random()*1.5),active:true,animTimer:0,isDying:false,deathAnimFrame:0};else if(eTR<0.8&&getMapTileCollision(c,r+1)===1)nE={type:'jumper',x:c*TILE_SIZE,y:r*TILE_SIZE,width:TILE_SIZE,height:TILE_SIZE,dx:0,dy:0,onGround:true,jumpCooldown:45+Math.random()*40,jumpTimer:Math.random()*30,active:true,animTimer:0,isDying:false,deathAnimFrame:0};else nE={type:'ghost',x:c*TILE_SIZE,y:r*TILE_SIZE,width:TILE_SIZE,height:TILE_SIZE,dx:TILE_SIZE*ENEMY_GHOST_SPEED_BASE*(Math.random()<0.5?1:-1),dy:TILE_SIZE*ENEMY_GHOST_SPEED_BASE*(Math.random()<0.5?1:-1),active:true,animTimer:0,isDying:false,deathAnimFrame:0,phaseTimer:Math.random()*100,alpha:0.7};if(nE){enemies.push(nE);sp=true;}}sA++;}}
+        
+        /**
+         * Updates the player's state, including movement, physics, actions, and collisions.
+         */
         function updatePlayer(){if(player.isDying){player.deathAnimFrame++;if(player.deathAnimFrame>=DEATH_ANIMATION_DURATION){player.isDying=false;if(player.lives<0)gameState='GAME_OVER';else{placePlayerAtStart();}}return;}if(player.isImmortal&&!player.isInGhostMode){player.immortalityTimer--;if(player.immortalityTimer<=0)player.isImmortal=false;}if(player.isInGhostMode){player.ghostModeTimer--;if(player.ghostModeTimer<=0)player.isInGhostMode=false;}if(inputState.restartLvl){restartCurrentLevelAction();inputState.restartLvl=false;return;}if(inputState.toggleControls){showTouchControls=!showTouchControls;inputState.toggleControls=false;}if(inputState.dropBomb)dropBomb();if(player.shootCooldownTimer>0)player.shootCooldownTimer--;if(inputState.left){player.dx=-PLAYER_MOVE_SPEED;}else if(inputState.right){player.dx=PLAYER_MOVE_SPEED;}else player.dx=0;if(player.dx<0)player.facingDirection=-1; else if(player.dx>0)player.facingDirection=1;if(inputState.shoot&&player.ammo>0&&player.shootCooldownTimer===0){projectiles.push({x:player.x+(player.facingDirection>0?player.width-TILE_SIZE*0.1:-TILE_SIZE*0.2),y:player.y+player.height*0.35,width:TILE_SIZE*0.3,height:TILE_SIZE*0.1,dx:LASER_SPEED*player.facingDirection,active:true});player.shootCooldownTimer=SHOOT_COOLDOWN;player.ammo--;inputState.shoot=false;}if(player.hasJetpack&&inputState.useJetpack&&player.jetpackFuelTimer>0){player.isFlying=true;player.dy-=JETPACK_THRUST*TILE_SIZE*0.1;if(player.dy<-PLAYER_MOVE_SPEED*1.5)player.dy=-PLAYER_MOVE_SPEED*1.5;player.jetpackFuelTimer--;player.jetpackFlameFrame=(player.jetpackFlameFrame+1)%3;}else{player.isFlying=false;}if(player.jetpackFuelTimer<=0&&player.hasJetpack){player.hasJetpack=false;player.isFlying=false;}if(inputState.jump&&player.onGround&&!player.isFlying){player.dy=-JUMP_VELOCITY_NORMAL;player.onGround=false;}if(!player.isFlying)player.dy+=GRAVITY;player.x+=player.dx;let pL=Math.floor(player.x/TILE_SIZE),pR=Math.floor((player.x+player.width-1)/TILE_SIZE),pT=Math.floor(player.y/TILE_SIZE),pB=Math.floor((player.y+player.height-1)/TILE_SIZE);for(let r=pT;r<=pB;r++){if(player.dx>0&&getMapTileCollision(pR,r,player.isInGhostMode)===1){player.x=pR*TILE_SIZE-player.width;player.dx=0;break;}if(player.dx<0&&getMapTileCollision(pL,r,player.isInGhostMode)===1){player.x=(pL+1)*TILE_SIZE;player.dx=0;break;}}player.y+=player.dy;pL=Math.floor(player.x/TILE_SIZE);pR=Math.floor((player.x+player.width-1)/TILE_SIZE);pT=Math.floor(player.y/TILE_SIZE);pB=Math.floor((player.y+player.height-1)/TILE_SIZE);player.onGround=false;for(let c=pL;c<=pR;c++){if(player.dy>0&&getMapTileCollision(c,pB,false)===1){player.y=pB*TILE_SIZE-player.height;player.dy=0;player.onGround=true;if(player.isFlying)player.isFlying=false;break;}if(player.dy<0&&getMapTileCollision(c,pT,player.isInGhostMode)===1){player.y=(pT+1)*TILE_SIZE;player.dy=0;if(player.isFlying)player.dy=GRAVITY*0.1;break;}}if(player.x<0){player.x=0;player.dx=0;}if(player.x+player.width>canvas.width){player.x=canvas.width-player.width;player.dx=0;}if(player.y<0){player.y=0;player.dy=0;if(player.isFlying)player.dy=GRAVITY*0.1;}if(player.y+player.height>canvas.height){player.y=canvas.height-player.height;player.dy=0;player.onGround=true;if(player.isFlying)player.isFlying=false;}player.animTimer++;if(!player.onGround&&!player.isFlying){}else if(player.dx!==0&&player.onGround&&player.animTimer%7===0)player.walkCycleFrame=(player.walkCycleFrame+1)%2;else if(player.onGround)player.walkCycleFrame=0;player.blinkTimer++;if(!player.isBlinking&&player.blinkTimer>100+Math.random()*100){player.isBlinking=true;player.blinkTimer=0;}else if(player.isBlinking&&player.blinkTimer>5){player.isBlinking=false;player.blinkTimer=0;}ghostModePickups.forEach(gp=>{if(gp.active&&!gp.collected&&checkCollision(player,gp)){gp.collected=true;player.isInGhostMode=true;player.ghostModeTimer=GHOST_MODE_DURATION;player.score+=60;}});jetpackPickups.forEach(jp=>{if(!jp.collected&&checkCollision(player,jp)){jp.collected=true;player.hasJetpack=true;player.jetpackFuelTimer=JETPACK_DURATION;player.score+=30;}});extraLifePickups.forEach(el=>{if(!el.collected&&checkCollision(player,el)){el.collected=true;player.lives++;player.score+=75;}});batteries.forEach(b=>{if(!b.collected&&!b.isCollecting&&checkCollision(player,b)){b.isCollecting=true;b.collectAnimFrame=0;createBatterySparks(b.x,b.y);player.score+=50;collectedBatteries++;if(collectedBatteries===totalBatteriesInLevel&&totalBatteriesInLevel>0){gameState='LEVEL_COMPLETE';levelCompleteTimer=Date.now();player.score+=250;}}});ammoPickups.forEach(a=>{if(!a.collected&&checkCollision(player,a)){a.collected=true;player.ammo+=a.amount;player.score+=10;}});bombPickups.forEach(bp=>{if(!bp.collected&&checkCollision(player,bp)){bp.collected=true;player.bombs++;player.score+=15;}});enemies.forEach(e=>{if(e.active&&!e.isDying&&checkCollision(player,e))playerHit();});}
+        
+        /**
+         * Checks for AABB (Axis-Aligned Bounding Box) collision between two rectangles.
+         * @param {object} r1 - First rectangle with x, y, width, height properties.
+         * @param {object} r2 - Second rectangle with x, y, width, height properties.
+         * @returns {boolean} True if the rectangles are overlapping, false otherwise.
+         */
         function checkCollision(r1,r2){return r1.x<r2.x+r2.width&&r1.x+r1.width>r2.x&&r1.y<r2.y+r2.height&&r1.y+r1.height>r2.y;}
+        
+        /**
+         * Updates the state of all active projectiles (lasers).
+         */
         function updateProjectiles(){projectiles=projectiles.filter(p=>p.active);projectiles.forEach(p=>{p.x+=p.dx;if(p.x<-p.width||p.x>canvas.width)p.active=false;enemies.forEach(e=>{if(e.active&&!e.isDying&&p.active&&checkCollision(p,e)){p.active=false;enemyHitByLaser(e);}});const pGX=Math.floor((p.x+p.width/2)/TILE_SIZE),pGY=Math.floor(p.y/TILE_SIZE);if(getMapTileCollision(pGX,pGY)===1)p.active=false;});}
+        
+        /**
+         * Updates the state of all active bombs, handling fuse timers and explosions.
+         */
         function updateActiveBombs(){for(let i=activeBombs.length-1;i>=0;i--){const bomb=activeBombs[i];bomb.fuseTimer--;if(!bomb.onGround){bomb.dy+=GRAVITY*0.5;bomb.y+=bomb.dy;const bGX=Math.floor((bomb.x+bomb.width/2)/TILE_SIZE),bGY=Math.floor((bomb.y+bomb.height)/TILE_SIZE);if(bomb.dy>0&&getMapTileCollision(bGX,bGY,false)===1){bomb.y=bGY*TILE_SIZE-bomb.height;bomb.dy=0;bomb.onGround=true;}}let exploded=false;if(bomb.fuseTimer<=0)exploded=true;enemies.forEach(enemy=>{if(enemy.active&&!enemy.isDying&&checkCollision(bomb,enemy))exploded=true;});if(exploded){createExplosion(bomb.x,bomb.y,35,COLOR_EXPLOSION_RED,COLOR_EXPLOSION_ORANGE,TILE_SIZE*(BOMB_EXPLOSION_RADIUS_TILES+0.2));const expArea={x:bomb.x+bomb.width/2-TILE_SIZE*BOMB_EXPLOSION_RADIUS_TILES,y:bomb.y+bomb.height/2-TILE_SIZE*BOMB_EXPLOSION_RADIUS_TILES,width:TILE_SIZE*BOMB_EXPLOSION_RADIUS_TILES*2,height:TILE_SIZE*BOMB_EXPLOSION_RADIUS_TILES*2};enemies.forEach(e=>{if(e.active&&!e.isDying&&checkCollision(expArea,e))enemyHitByLaser(e);});if(checkCollision(expArea,player)&&!player.isDying&&!player.isImmortal&&!player.isInGhostMode){const knockbackAngle=Math.atan2(player.y+player.height/2-(bomb.y+bomb.height/2),player.x+player.width/2-(bomb.x+bomb.width/2));player.dx+=Math.cos(knockbackAngle)*TILE_SIZE*BOMB_KNOCKBACK_FORCE;player.dy+=Math.sin(knockbackAngle)*TILE_SIZE*BOMB_KNOCKBACK_FORCE;player.onGround=false;}activeBombs.splice(i,1);}}}
+        
+        /**
+         * Updates the state and behavior of all active enemies.
+         */
         function updateEnemies(){enemies.forEach(e=>{if(!e.active&&!e.isDying)return;if(e.isDying){e.deathAnimFrame++;if(e.deathAnimFrame>=DEATH_ANIMATION_DURATION)e.isDying=false;return;}e.animTimer++;if(e.type==='patrol'){e.x+=e.dx;if(e.x<=e.originalX-e.patrolRange||e.x+e.width>=e.originalX+e.width+e.patrolRange)e.dx*=-1;const eL=Math.floor(e.x/TILE_SIZE),eR=Math.floor((e.x+e.width-1)/TILE_SIZE),eRow=Math.floor((e.y+e.height/2)/TILE_SIZE);if(e.dx<0&&getMapTileCollision(eL,eRow)===1){e.x=(eL+1)*TILE_SIZE;e.dx*=-1;}else if(e.dx>0&&getMapTileCollision(eR,eRow)===1){e.x=eR*TILE_SIZE-e.width;e.dx*=-1;}const gCX1=Math.floor(e.x/TILE_SIZE),gCX2=Math.floor((e.x+e.width-1)/TILE_SIZE),gCY=Math.floor((e.y+e.height)/TILE_SIZE);if(getMapTileCollision(gCX1,gCY)===0&&getMapTileCollision(gCX2,gCY)===0){e.y+=TILE_SIZE*0.1;if(e.y>canvas.height-PLAY_AREA_Y_OFFSET)e.active=false;}}else if(e.type==='jumper'){e.dy+=GRAVITY*0.8;e.y+=e.dy;const eL=Math.floor(e.x/TILE_SIZE),eR=Math.floor((e.x+e.width-1)/TILE_SIZE),pB=Math.floor((e.y+e.height-1)/TILE_SIZE);e.onGround=false;for(let c=eL;c<=eR;c++){if(e.dy>=0&&getMapTileCollision(c,pB)===1){e.y=pB*TILE_SIZE-e.height;e.dy=0;e.onGround=true;break;}}e.jumpTimer++;if(e.onGround&&e.jumpTimer>=e.jumpCooldown){e.dy=-TILE_SIZE*ENEMY_JUMPER_JUMP_VELOCITY_FACTOR;e.onGround=false;e.jumpTimer=0;e.jumpCooldown=(40+Math.random()*50)*(0.8+Math.random()*0.4);}}else if(e.type==='ghost'){e.x+=e.dx;e.y+=e.dy;e.phaseTimer++;e.alpha=0.5+Math.sin(e.phaseTimer*0.1)*0.3;const playAreaHeight = GRID_ROWS * TILE_SIZE; if(e.x<0||e.x+e.width>GRID_COLS*TILE_SIZE)e.dx*=-1;if(e.y<0||e.y+e.height>playAreaHeight)e.dy*=-1;}});enemies=enemies.filter(e=>e.active||e.isDying);}
+        
+        /**
+         * Updates the state of all items (pickups), handling collection animations and removal.
+         */
         function updateItems(){batteries.forEach(b=>{if(b.isCollecting){b.collectAnimFrame++;if(b.collectAnimFrame>=BATTERY_COLLECT_ANIM_DURATION){b.collected=true;b.isCollecting=false;}}});batteries=batteries.filter(b=>!b.collected||b.isCollecting);ghostModePickups.forEach(gp=>{if(gp.active&&gp.collected)gp.active=false;});bombPickups=bombPickups.filter(bp=>!bp.collected);ammoPickups=ammoPickups.filter(ap=>!ap.collected);jetpackPickups=jetpackPickups.filter(jp=>!jp.collected);extraLifePickups=extraLifePickups.filter(el=>!el.collected);}
+        
+        /**
+         * Updates the state of all active particles, moving them and reducing their lifespan.
+         */
         function updateParticles(){particles=particles.filter(p=>p.life>0);particles.forEach(p=>{p.x+=p.dx;p.y+=p.dy;p.life--;});}
+        
+        /**
+         * The main update function, called every frame. Manages game logic based on the current gameState.
+         */
         function update(){if(gameState==='PLAYING'){if(ghostModeSpawnEligibilityTimer>0)ghostModeSpawnEligibilityTimer--;else{ghostModePickups.forEach(gp=>{if(!gp.active&&!gp.collected)gp.active=true;});}if(nextEnemySpawnTimer>0)nextEnemySpawnTimer--;else{spawnDynamicEnemy();nextEnemySpawnTimer=Math.max(120,ENEMY_SPAWN_INTERVAL_BASE/player.currentLevel);}}if(gameState==='PLAYING'){updatePlayer();updateProjectiles();updateActiveBombs();updateEnemies();updateItems();updateParticles();}else if(gameState==='LEVEL_COMPLETE'){updateParticles();if(Date.now()-levelCompleteTimer>LEVEL_COMPLETE_DELAY){player.currentLevel++;resetCurrentLevelSetup();gameState='PLAYING';}}else if(gameState==='GAME_OVER'||gameState==='START_SCREEN'){updateParticles();}}
 
+        // ----------------------------------------------------------------------------------
+        // --- DRAW FUNCTIONS ---
+        // ----------------------------------------------------------------------------------
+
+        /**
+         * Draws the circuit-themed map tiles onto the canvas.
+         */
         function drawMap(){if(!currentLevelMap||currentLevelMap.length===0){return;}ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);for(let r=0;r<GRID_ROWS;r++)for(let c=0;c<GRID_COLS;c++)if(currentLevelMap[r][c]===1)drawCircuitTile(c*TILE_SIZE,r*TILE_SIZE,TILE_SIZE,c,r);ctx.restore();}
+        
+        /**
+         * Draws a single circuit tile with connecting traces to neighboring walls.
+         */
         function drawCircuitTile(x,y,s,col,row){ctx.fillStyle=currentCircuitColors.base;ctx.fillRect(x,y,s,s);ctx.strokeStyle=currentCircuitColors.trace;ctx.lineWidth=Math.max(1,Math.floor(s/12));const cX=x+s/2,cY=y+s/2;const nS=s/6;function hasWall(dc,dr){const nC=col+dc,nR=row+dr;return getMapTileCollision(nC,nR)===1;}if(hasWall(0,-1)){ctx.beginPath();ctx.moveTo(cX,cY);ctx.lineTo(cX,y);ctx.stroke();}if(hasWall(0,1)){ctx.beginPath();ctx.moveTo(cX,cY);ctx.lineTo(cX,y+s);ctx.stroke();}if(hasWall(-1,0)){ctx.beginPath();ctx.moveTo(cX,cY);ctx.lineTo(x,cY);ctx.stroke();}if(hasWall(1,0)){ctx.beginPath();ctx.moveTo(cX,cY);ctx.lineTo(x+s,cY);ctx.stroke();}ctx.fillStyle=currentCircuitColors.node;ctx.fillRect(cX-nS/2,cY-nS/2,nS,nS);}
+        
+        /**
+         * Draws the player character, handling different states like dying, immortal, ghost mode, and animations.
+         */
         function drawPlayer(){let cBC=player.isImmortal?COLOR_PLAYER_IMMORTAL_BODY:player.isInGhostMode?COLOR_PLAYER_GHOST_BODY:COLOR_PLAYER_BODY;let cAC=player.isImmortal?COLOR_PLAYER_IMMORTAL_ACCENT:player.isInGhostMode?COLOR_PLAYER_GHOST_ACCENT:COLOR_PLAYER_ACCENT;if(player.isDying){let dS=1-(player.deathAnimFrame/DEATH_ANIMATION_DURATION);if(dS<0)dS=0;ctx.save();ctx.globalAlpha=dS;ctx.translate(0,PLAY_AREA_Y_OFFSET);ctx.translate(player.x+player.width/2,player.y+player.height/2);ctx.scale(dS,dS);ctx.translate(-(player.x+player.width/2),-(player.y+player.height/2));const px=Math.floor(player.x),py=Math.floor(player.y),ts=TILE_SIZE;const headH=ts*0.65,headW=ts*0.75,bodyH=ts*0.15,bodyW=ts*0.35;ctx.fillStyle=cBC;ctx.fillRect(px+(ts-bodyW)/2,py+headH+(ts-(headH+bodyH+ts*0.2))/2,bodyW,bodyH);ctx.fillRect(px+(ts-headW)/2,py+(ts-(headH+bodyH+ts*0.2))/2,headW,headH);ctx.restore();return;}ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);if(player.isInGhostMode)ctx.globalAlpha=0.7+Math.sin(Date.now()*0.01)*0.2;const px=Math.floor(player.x),py=Math.floor(player.y),ts=TILE_SIZE;const headH=ts*0.65,headW=ts*0.75,bodyH=ts*0.15,bodyW=ts*0.35,legW=ts*0.18,legH=ts*0.28,eyeS=ts*0.28,pupilS=ts*0.14,antH=ts*0.1,antW=ts*0.03,antTipS=ts*0.05,blushS=ts*0.14;const totalVisH=headH+bodyH+legH,vertOff=Math.floor((ts-totalVisH)/2),headY=py+vertOff,headX=px+Math.floor((ts-headW)/2),bodyY=headY+headH,bodyX=px+Math.floor((ts-bodyW)/2),legBaseY=bodyY+bodyH,leg1X=bodyX+bodyW*0.2,leg2X=bodyX+bodyW*0.8-legW;let legYOffset=0;let legXOffset1=0;let legXOffset2=0;if(player.isFlying){legYOffset=-ts*0.08;legXOffset1=player.facingDirection*ts*0.03;legXOffset2=player.facingDirection*ts*0.03;}else if(!player.onGround){legYOffset=ts*0.05;legXOffset1=-player.facingDirection*ts*0.02;legXOffset2=player.facingDirection*ts*0.02;}else if(player.dx!==0){legYOffset=(player.walkCycleFrame===0?ts*0.03:0);}ctx.fillStyle=cBC;ctx.fillRect(leg1X+legXOffset1,legBaseY+legYOffset,legW,legH);ctx.fillRect(leg2X+legXOffset2,legBaseY+legYOffset,legW,legH);ctx.beginPath();let r=ts*0.03;ctx.moveTo(bodyX+r,bodyY);ctx.arcTo(bodyX+bodyW,bodyY,bodyX+bodyW,bodyY+bodyH,r);ctx.arcTo(bodyX+bodyW,bodyY+bodyH,bodyX,bodyY+bodyH,r);ctx.arcTo(bodyX,bodyY+bodyH,bodyX,bodyY,r);ctx.arcTo(bodyX,bodyY,bodyX+bodyW,bodyY,r);ctx.closePath();ctx.fill();ctx.beginPath();r=ts*0.2;ctx.moveTo(headX+r,headY);ctx.arcTo(headX+headW,headY,headX+headW,headY+headH,r);ctx.arcTo(headX+headW,headY+headH,headX,headY+headH,r);ctx.arcTo(headX,headY+headH,headX,headY,r);ctx.arcTo(headX,headY,headX+headW,headY,r);ctx.closePath();ctx.fill();const antBX=headX+headW/2-antW/2,antBY=headY-antH;ctx.fillStyle=cBC;ctx.fillRect(antBX,antBY,antW,antH);ctx.fillStyle=cAC;ctx.beginPath();ctx.arc(antBX+antW/2,antBY-antTipS/2,antTipS,0,Math.PI*2);ctx.fill();const eyeY=headY+headH*0.4-eyeS/2,eyeSp=headW*0.25,eye1X=headX+eyeSp,eye2X=headX+headW-eyeSp-eyeS;ctx.fillStyle=COLOR_PLAYER_EYE_WHITES;ctx.beginPath();ctx.arc(eye1X+eyeS/2,eyeY+eyeS/2,eyeS/2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(eye2X+eyeS/2,eyeY+eyeS/2,eyeS/2,0,Math.PI*2);ctx.fill();if(player.isBlinking){ctx.fillStyle=COLOR_PLAYER_PUPIL;ctx.fillRect(eye1X,eyeY+eyeS/2-Math.max(1,ts*0.01),eyeS,Math.max(1,ts*0.02));ctx.fillRect(eye2X,eyeY+eyeS/2-Math.max(1,ts*0.01),eyeS,Math.max(1,ts*0.02));}else{ctx.fillStyle=COLOR_PLAYER_PUPIL;let pOffX=(player.dx===0)?0:player.facingDirection*eyeS*0.15;ctx.beginPath();ctx.arc(eye1X+eyeS/2+pOffX,eyeY+eyeS/2,pupilS/2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(eye2X+eyeS/2+pOffX,eyeY+eyeS/2,pupilS/2,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_PLAYER_EYE_WHITES;ctx.fillRect(eye1X+eyeS*0.6+pOffX,eyeY+eyeS*0.2,pupilS*0.3,pupilS*0.3);ctx.fillRect(eye2X+eyeS*0.6+pOffX,eyeY+eyeS*0.2,pupilS*0.3,pupilS*0.3);}if(TILE_SIZE>12&&!player.isImmortal&&!player.isInGhostMode){ctx.fillStyle=COLOR_PLAYER_BLUSH;ctx.beginPath();ctx.arc(headX+headW*0.2,headY+headH*0.75,blushS/2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(headX+headW*0.8,headY+headH*0.75,blushS/2,0,Math.PI*2);ctx.fill();}if(player.hasJetpack){const packW=ts*0.3,packH=ts*0.4;const packX=player.facingDirection>0?bodyX-packW*0.8:bodyX+bodyW-packW*0.2;const packY=bodyY+bodyH*0.1;ctx.fillStyle=COLOR_JETPACK_BODY;ctx.fillRect(packX,packY,packW,packH);if(player.isFlying){ctx.fillStyle=COLOR_JETPACK_FLAME[player.jetpackFlameFrame];ctx.beginPath();ctx.moveTo(packX+packW*0.2,packY+packH);ctx.lineTo(packX+packW*0.8,packY+packH);ctx.lineTo(packX+packW/2,packY+packH+ts*0.25);ctx.closePath();ctx.fill();}}if(player.isInGhostMode)ctx.globalAlpha=1;ctx.restore();}
+        
+        /**
+         * Draws all active projectiles (lasers).
+         */
         function drawProjectiles(){ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);ctx.fillStyle=COLOR_LASER;projectiles.forEach(p=>p.active&&ctx.fillRect(p.x,p.y,p.width,p.height));ctx.restore();}
+        
+        /**
+         * Draws all active bombs on the ground.
+         */
         function drawActiveBombs(){ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);activeBombs.forEach(bomb=>{const ts=TILE_SIZE;ctx.fillStyle=COLOR_BOMB_BODY;ctx.beginPath();ctx.arc(bomb.x+bomb.width/2,bomb.y+bomb.height*0.6,bomb.width/2,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_BOMB_FUSE;ctx.fillRect(bomb.x+bomb.width/2-ts*0.02,bomb.y,ts*0.04,bomb.height*0.3);if(bomb.fuseTimer%15<7){ctx.fillStyle=COLOR_EXPLOSION_YELLOW;ctx.beginPath();ctx.arc(bomb.x+bomb.width/2,bomb.y,ts*0.05,0,Math.PI*2);ctx.fill();}});ctx.restore();}
+        
+        /**
+         * Draws all active enemies.
+         */
         function drawEnemies(){ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);enemies.forEach(e=>{if(!e.active&&!e.isDying)return;if(e.isDying){}else{const ex=Math.floor(e.x),ey=Math.floor(e.y),ts=TILE_SIZE;if(e.type==='patrol'){const bW=ts*0.8,bH=ts*0.7,bX=ex+(ts-bW)/2,bY=ey+(ts-bH)/2,legW=ts*0.1,legH=ts*0.3,legY=bY+bH,l1X=bX+bW*0.2,l2X=bX+bW*0.8-legW,lOff=(e.animTimer%20<10)?ts*0.05:0;ctx.fillStyle=COLOR_ENEMY_PATROL_BODY;ctx.fillRect(l1X,legY-lOff,legW,legH+lOff);ctx.fillRect(l2X,legY+lOff,legW,legH-lOff);ctx.fillRect(bX,bY,bW,bH);const antH=ts*0.3,antW=ts*0.06,antTS=ts*0.1,antBX=bX+bW/2-antW/2,antBY=bY-antH;ctx.fillStyle=COLOR_ENEMY_PATROL_ACCENT;ctx.fillRect(antBX,antBY,antW,antH);ctx.fillStyle=COLOR_ENEMY_PATROL_BODY;ctx.fillRect(antBX+antW/2-antTS/2,antBY-antTS/2,antTS,antTS);ctx.fillStyle=COLOR_ENEMY_PATROL_ACCENT;const eyeS=ts*0.2,eyeX=bX+bW/2-eyeS/2+(e.dx>0?bW*0.15:-bW*0.15),eyeY=bY+bH*0.2;ctx.fillRect(eyeX,eyeY,eyeS,eyeS);}else if(e.type==='jumper'){const bodyS=ts*0.7,eyeS=ts*0.2,legS=ts*0.15;const bodyX=ex+(ts-bodyS)/2,bodyY=ey+(ts-bodyS)/2;ctx.fillStyle=COLOR_ENEMY_JUMPER_BODY;ctx.beginPath();ctx.arc(bodyX+bodyS/2,bodyY+bodyS/2,bodyS/2,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_ENEMY_JUMPER_ACCENT;ctx.beginPath();ctx.arc(bodyX+bodyS/2+(e.animTimer%30<15?ts*0.05:-ts*0.05),bodyY+bodyS*0.3,eyeS/2,0,Math.PI*2);ctx.fill();if(e.onGround){ctx.fillRect(bodyX+bodyS*0.2,bodyY+bodyS*0.8,legS,legS);ctx.fillRect(bodyX+bodyS*0.8-legS,bodyY+bodyS*0.8,legS,legS);}}else if(e.type==='ghost'){ctx.globalAlpha=e.alpha;ctx.fillStyle=COLOR_ENEMY_GHOST_BODY;ctx.beginPath();ctx.arc(ex+ts/2,ey+ts/2,ts/2.2,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_ENEMY_GHOST_GLOW;ctx.beginPath();ctx.arc(ex+ts/2,ey+ts/2,ts/1.8,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_ENEMY_GHOST_EYES;const eyeRad=ts*0.1;ctx.beginPath();ctx.arc(ex+ts*0.35,ey+ts*0.4,eyeRad,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(ex+ts*0.65,ey+ts*0.4,eyeRad,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}}});ctx.restore();}
+        
+        /**
+         * Draws all collectible items and power-ups.
+         */
         function drawItems(){ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);ghostModePickups.forEach(gp=>{if(gp.active&&!gp.collected){ctx.fillStyle=COLOR_GHOSTMODE_PICKUP;const gx=gp.x,gy=gp.y,ts=TILE_SIZE;ctx.globalAlpha=0.6+Math.sin(Date.now()*0.005)*0.3;ctx.beginPath();ctx.arc(gx+ts/2,gy+ts/2,ts*0.35,0,Math.PI*2);ctx.fill();ctx.fillStyle='rgba(255,255,255,0.5)';ctx.beginPath();ctx.arc(gx+ts/2,gy+ts/2,ts*0.2,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}});jetpackPickups.forEach(jp=>{if(!jp.collected){ctx.fillStyle=COLOR_JETPACK_PICKUP;const jx=jp.x,jy=jp.y,ts=TILE_SIZE;const packW=ts*0.6,packH=ts*0.5,nozzleS=ts*0.15;ctx.fillRect(jx+(ts-packW)/2,jy+(ts-packH)/2,packW,packH);ctx.fillStyle=COLOR_JETPACK_BODY;ctx.fillRect(jx+(ts-packW)/2+packW*0.2,jy+(ts-packH)/2+packH,nozzleS,nozzleS);ctx.fillRect(jx+(ts-packW)/2+packW*0.8-nozzleS,jy+(ts-packH)/2+packH,nozzleS,nozzleS);}});extraLifePickups.forEach(el=>{if(!el.collected){const ex=el.x,ey=el.y,ts=TILE_SIZE;ctx.fillStyle=COLOR_EXTRA_LIFE_PICKUP;const pS=ts*0.2;ctx.fillRect(ex+ts/2-pS/2,ey+ts*0.15,pS,ts*0.7);ctx.fillRect(ex+ts*0.15,ey+ts/2-pS/2,ts*0.7,pS);ctx.fillStyle=COLOR_EXTRA_LIFE_ACCENT;ctx.font=`bold ${ts*0.25}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('1UP',ex+ts/2,ey+ts/2+ts*0.02);}});batteries.forEach(b=>{if(!b.isCollecting&&!b.collected){ctx.fillStyle=COLOR_BATTERY;const bx=b.x,by=b.y,ts=TILE_SIZE;ctx.fillRect(bx+ts*0.2,by+ts*0.1,ts*0.6,ts*0.8);ctx.fillStyle=currentCircuitColors.mortar;ctx.fillRect(bx+ts*0.4,by+ts*0.05,ts*0.2,ts*0.1);}});ammoPickups.forEach(a=>{if(!a.collected){ctx.fillStyle=COLOR_AMMO_PICKUP;const ax=a.x,ay=a.y,ts=TILE_SIZE;ctx.fillRect(ax+ts*0.3,ay+ts*0.2,ts*0.4,ts*0.6);ctx.fillStyle=COLOR_LASER;ctx.fillRect(ax+ts*0.4,ay+ts*0.1,ts*0.2,ts*0.2);}});bombPickups.forEach(bp=>{if(!bp.collected){ctx.fillStyle=COLOR_BOMB_PICKUP;const bx=bp.x,by=bp.y,ts=TILE_SIZE;ctx.beginPath();ctx.arc(bx+ts/2,by+ts*0.6,ts*0.3,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_BOMB_FUSE;ctx.fillRect(bx+ts/2-ts*0.03,by+ts*0.1,ts*0.06,ts*0.3);}});ctx.restore();}
+        
+        /**
+         * Draws all active particles (for explosions, etc.).
+         */
         function drawParticles(){ctx.save();ctx.translate(0,PLAY_AREA_Y_OFFSET);particles.forEach(p=>{ctx.fillStyle=p.color;ctx.globalAlpha=p.life/(DEATH_ANIMATION_DURATION*0.8);ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);});ctx.restore();ctx.globalAlpha=1;}
+        
+        /**
+         * Draws the main User Interface (UI) at the top of the screen, including score, lives, ammo, etc.
+         */
         function drawUI(){ctx.fillStyle=COLOR_UI_BACKGROUND;ctx.fillRect(0,0,canvas.width,TOP_UI_AREA_HEIGHT);const uiSZ=TILE_SIZE*0.65;const topM=TILE_SIZE*0.3;const lineH=TILE_SIZE*0.7;let currentLineY=topM;drawText(`LVL:${player.currentLevel} SCORE:${player.score}`,TILE_SIZE*0.3,currentLineY,uiSZ,'left',COLOR_TEXT,COLOR_TEXT_SHADOW);drawText(`Lives: ${player.lives<0?0:player.lives}`,canvas.width/2,currentLineY,uiSZ,'center',COLOR_TEXT,COLOR_TEXT_SHADOW); /* Centered Lives */ currentLineY+=lineH;drawText(`AMMO:${player.ammo}`,TILE_SIZE*0.3,currentLineY,uiSZ,'left',COLOR_TEXT,COLOR_TEXT_SHADOW);let statusTextX=TILE_SIZE*5;if(player.bombs>0){drawText(`Bombs:${player.bombs}`,statusTextX,currentLineY,uiSZ,'left',COLOR_BOMB_PICKUP,COLOR_TEXT_SHADOW);statusTextX+=TILE_SIZE*4;}if(player.isImmortal&&!player.isInGhostMode)drawText(`INVINCIBLE!`,statusTextX,currentLineY,uiSZ,'left',COLOR_PLAYER_IMMORTAL_ACCENT,COLOR_TEXT_SHADOW);else if(player.isInGhostMode)drawText(`GHOST!`,statusTextX,currentLineY,uiSZ,'left',COLOR_PLAYER_GHOST_ACCENT,COLOR_TEXT_SHADOW);else if(player.hasJetpack)drawText(`JETPACK:${Math.ceil(player.jetpackFuelTimer/60)}s`,statusTextX,currentLineY,uiSZ,'left',COLOR_JETPACK_PICKUP,COLOR_TEXT_SHADOW);currentLineY+=lineH;drawText(`BATT:${collectedBatteries}/${totalBatteriesInLevel}`,TILE_SIZE*0.3,currentLineY,uiSZ,'left',COLOR_TEXT,COLOR_TEXT_SHADOW);}
+        
+        /**
+         * A utility function to draw text on the canvas with optional shadow.
+         */
         function drawText(txt,x,y,s,aln='center',clr=COLOR_TEXT,shd=null){ctx.font=`bold ${s}px Arial, sans-serif`;ctx.textAlign=aln;ctx.textBaseline='top';if(shd){ctx.fillStyle=shd;ctx.fillText(txt,x+Math.max(1,s*0.05),y+Math.max(1,s*0.05));}ctx.fillStyle=clr;ctx.fillText(txt,x,y);}
+        
+        /**
+         * Draws the custom pixel art graphic for the bomb button.
+         * @param {object} button - The button object from the touchControls array.
+         */
         function drawPixelArtBombButton(button){const ts=TILE_SIZE;const x=button.x,y=button.y,w=button.width,h=button.height;const bombR=Math.min(w,h)*0.3;const fuseH=bombR*0.6;ctx.fillStyle=COLOR_BOMB_BODY;ctx.beginPath();ctx.arc(x+w/2,y+h*0.6,bombR,0,Math.PI*2);ctx.fill();ctx.fillStyle=COLOR_BOMB_FUSE;ctx.fillRect(x+w/2-ts*0.03,y+h*0.6-bombR-fuseH,ts*0.06,fuseH);if(inputState.dropBomb){ctx.fillStyle='rgba(255,255,0,0.5)';ctx.beginPath();ctx.arc(x+w/2,y+h*0.6-bombR-fuseH,ts*0.05,0,Math.PI*2);ctx.fill();}}
         
+        /**
+         * Draws a large, static version of the player character for the intro screen.
+         * @param {number} x - The x-coordinate to start drawing.
+         * @param {number} y - The y-coordinate to start drawing.
+         * @param {number} size - The overall size (acts like TILE_SIZE for this drawing).
+         */
         function drawIntroBot(x, y, size) {
             const cBC = COLOR_PLAYER_BODY; const cAC = COLOR_PLAYER_ACCENT;
             const ts = size; const px = x; const py = y;
@@ -192,6 +457,9 @@
             }
         }
         
+        /**
+         * Draws the start screen, with the game title, instructions, and a large player sprite.
+         */
         function drawStartScreen(){
             ctx.fillStyle=COLOR_UI_BACKGROUND; ctx.fillRect(0,0,canvas.width,canvas.height);
             const titleSize = TILE_SIZE * 1.2;
@@ -229,7 +497,7 @@
             yPos += collectSize * 2.6;
 
 
-            drawText('Tap to Phase In!',canvas.width/2,yPos,tapSize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
+            drawText('Tap or Press Space to Phase In!',canvas.width/2,yPos,tapSize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
             yPos += tapSize * 1.5;
             drawText('Touch Controls: On-Screen (H to Toggle)',canvas.width/2,yPos,controlsTopSize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
             yPos += controlsTopSize * 1.8;
@@ -239,13 +507,17 @@
             yPos += keyInfoSize * 1.4;
             drawText('Ctrl/Shift/X: Shoot | B: Bomb | R: Restart',canvas.width/2,yPos,keyInfoSize,'center',COLOR_TEXT);
         }
+
+        /**
+         * Draws the game over screen with the final score and a prompt to retry.
+         */
         function drawGameOverScreen(){
             ctx.fillStyle=COLOR_UI_BACKGROUND; ctx.fillRect(0,0,canvas.width,canvas.height);
             ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,canvas.width,canvas.height);
-            const titleSize = TILE_SIZE * 2.2; // **Larger Game Over Title**
+            const titleSize = TILE_SIZE * 2.2;
             const scoreSize = TILE_SIZE * 1.0;
-            const levelSize = TILE_SIZE * 0.8; // **Separate size for level**
-            const retrySize = TILE_SIZE * 0.9; // **Larger Retry**
+            const levelSize = TILE_SIZE * 0.8;
+            const retrySize = TILE_SIZE * 0.9;
 
             let yPos = canvas.height * 0.30;
             drawText('GAME OVER',canvas.width/2,yPos,titleSize,'center',COLOR_INTRO_GAMEOVER_TEXT.toUpperCase(),null);
@@ -254,29 +526,33 @@
             yPos += scoreSize * 1.5;
             drawText(`LEVEL: ${player.currentLevel}`,canvas.width/2,yPos,levelSize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
             yPos += levelSize * 2.5;
-            drawText('Tap to Retry',canvas.width/2,yPos,retrySize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
+            drawText('Tap or Press Space to Retry',canvas.width/2,yPos,retrySize,'center',COLOR_TEXT,COLOR_TEXT_SHADOW);
         }
 
+        /**
+         * Draws the level complete screen overlay.
+         */
         function drawLevelCompleteScreen(){ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(0,0,canvas.width,canvas.height);drawText('SUCCESS!',canvas.width/2,canvas.height/2-TILE_SIZE,TILE_SIZE*2.5,'center',COLOR_SUCCESS,'#000');}
+        
+        /**
+         * Draws the on-screen touch controls.
+         */
         function drawTouchControls(){
             if(gameState!=='PLAYING'&&gameState!=='LEVEL_COMPLETE')return;
             ctx.font=`${Math.floor(TILE_SIZE*1.2)}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';
             touchControls.buttons.forEach(b=>{
                 if (b.action === 'toggleControls') { return; }
-                if (!showTouchControls && b.action !== 'restartLvl') return; // Hide everything but restart if toggled
-                if (!showTouchControls && b.action === 'restartLvl' && !inputState.restartLvl) { // If controls hidden, and restart not pressed, don't draw it
-                    // This makes restart only appear briefly when pressed if controls are hidden
-                    // Or, remove this condition to always show restart (dimmed)
+                if (!showTouchControls && b.action !== 'restartLvl') return;
+                if (!showTouchControls && b.action === 'restartLvl' && !inputState.restartLvl) {
                     return;
                 }
 
-
-                if (showTouchControls || b.action === 'restartLvl') { // Only draw restart if controls hidden
+                if (showTouchControls || b.action === 'restartLvl') {
                     if (showTouchControls && b.action === 'shoot' && player.ammo <= 0) return;
                     if (showTouchControls && b.action === 'dropBomb' && player.bombs <= 0) return;
 
                     ctx.fillStyle=inputState[b.action]&&b.action!=='restartLvl'?TOUCH_BUTTON_PRESSED_COLOR:TOUCH_BUTTON_COLOR;
-                    if(b.action==='restartLvl')ctx.globalAlpha=0.85; else ctx.globalAlpha = 1.0; // Restart slightly more opaque
+                    if(b.action==='restartLvl')ctx.globalAlpha=0.85; else ctx.globalAlpha = 1.0;
                     
                     ctx.fillRect(b.x,b.y,b.width,b.height);
                     ctx.globalAlpha=1.0;
@@ -292,9 +568,22 @@
             });
         }
 
-        function draw(){if(!ctx){return;}if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){ctx.fillStyle=COLOR_UI_BACKGROUND;ctx.fillRect(0,0,canvas.width,canvas.height);}else{ctx.fillStyle=COLOR_UI_BACKGROUND;ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle=COLOR_GAME_AREA_BACKGROUND;ctx.fillRect(0,PLAY_AREA_Y_OFFSET,canvas.width,GRID_ROWS*TILE_SIZE);}if(gameState==='START_SCREEN')drawStartScreen();else if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){drawMap();drawItems();drawActiveBombs();drawEnemies();drawProjectiles();if(!player.isDying)drawPlayer();drawParticles();drawUI();if(gameState==='LEVEL_COMPLETE')drawLevelCompleteScreen();}else if(gameState==='GAME_OVER'){/* Game elements can be drawn here if desired under the GAME OVER text */ drawUI(); /* Still show UI like score */ drawGameOverScreen();}drawTouchControls();}
+        /**
+         * The main drawing function, called every frame. Clears the canvas and draws all game elements based on the current gameState.
+         */
+        function draw(){if(!ctx){return;}if(gameState==='START_SCREEN'||gameState==='GAME_OVER'){ctx.fillStyle=COLOR_UI_BACKGROUND;ctx.fillRect(0,0,canvas.width,canvas.height);}else{ctx.fillStyle=COLOR_UI_BACKGROUND;ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle=COLOR_GAME_AREA_BACKGROUND;ctx.fillRect(0,PLAY_AREA_Y_OFFSET,canvas.width,GRID_ROWS*TILE_SIZE);}if(gameState==='START_SCREEN')drawStartScreen();else if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){drawMap();drawItems();drawActiveBombs();drawEnemies();drawProjectiles();if(!player.isDying)drawPlayer();drawParticles();drawUI();if(gameState==='LEVEL_COMPLETE')drawLevelCompleteScreen();}else if(gameState==='GAME_OVER'){drawUI(); drawGameOverScreen();}drawTouchControls();}
+        
+        /**
+         * The main game loop. Updates game logic and redraws the screen on each animation frame.
+         */
         let lastTime=0;function gameLoop(timestamp){const deltaTime=timestamp-lastTime;lastTime=timestamp;try{update();draw();}catch(e){console.error("Error in game loop:",e);gameState='ERROR';}requestAnimationFrame(gameLoop);}
+        
+        /**
+         * Initializes the game. Sets up the canvas, event listeners, and starts the game loop.
+         */
         function init(){if(!canvas){console.error("Canvas element not found!");return;}if(!ctx){console.error("Failed to get 2D context!");return;}setupCanvas();setupTouchControls();window.addEventListener('keydown',handleKeyDown);window.addEventListener('keyup',handleKeyUp);canvas.addEventListener('click',handleCanvasClick);canvas.addEventListener('touchstart',handleTouchStart,{passive:false});canvas.addEventListener('touchmove',handleTouchMove,{passive:false});canvas.addEventListener('touchend',handleTouchEnd,{passive:false});canvas.addEventListener('touchcancel',handleTouchEnd,{passive:false});window.addEventListener('resize',()=>{const oLvl=player.currentLevel;const oScore=player.score;const oLives=player.lives;const oAmmo=player.ammo;const oBombs=player.bombs;const oImmortal=player.isImmortal;const oImmortalTimer=player.immortalityTimer;const oGhost=player.isInGhostMode;const oGhostTimer=player.ghostModeTimer;const oJetpack=player.hasJetpack;const oJetFuel=player.jetpackFuelTimer;setupCanvas();setupTouchControls();if(gameState==='PLAYING'||gameState==='LEVEL_COMPLETE'){player.currentLevel=oLvl;player.score=oScore;player.lives=oLives;player.ammo=oAmmo;player.bombs=oBombs;player.isImmortal=oImmortal;player.immortalityTimer=oImmortalTimer;player.isInGhostMode=oGhost;player.ghostModeTimer=oGhostTimer;player.hasJetpack=oJetpack;player.jetpackFuelTimer=oJetFuel;resetCurrentLevelSetup();placePlayerAtStart();}});gameState='START_SCREEN';requestAnimationFrame(gameLoop);}
+        
+        // --- Game Start ---
         document.addEventListener('DOMContentLoaded',init);
     </script>
 </body>
